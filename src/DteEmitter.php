@@ -128,15 +128,16 @@ class DteEmitter
             $dte->timbrar($folios);
             
             // 7. Firmar documento
-            $xmlFirmado = $dte->firmar($firma);
+            $firmadoOk = $dte->firmar($firma);
             
-            if (!$xmlFirmado) {
+            if (!$firmadoOk) {
                  throw new RuntimeException("Error al firmar el DTE. Revisa tus credenciales y CAF.", 500);
             }
 
             return [
                 'folio' => $folioAsignado, 
-                'xml'   => base64_encode($xmlFirmado),
+                'xml'   => base64_encode($dte->saveXML()),
+                'ted'   => $dte->getTED(),
                 'pdf'   => null // PDF se delegaría a otro sistema o a otra función de libredte
             ];
 

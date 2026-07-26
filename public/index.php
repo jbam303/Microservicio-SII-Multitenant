@@ -41,6 +41,19 @@ $customErrorHandler = function (
         $code = $exception->getCode();
     }
 
+    // Log structured JSON to stderr for Cloud Logging
+    $logEntry = json_encode([
+        'severity' => 'ERROR',
+        'message' => $exception->getMessage(),
+        'code' => $code,
+        'exception_class' => get_class($exception),
+        'file' => $exception->getFile() . ':' . $exception->getLine(),
+        'trace' => $exception->getTraceAsString(),
+        'uri' => (string) $request->getUri(),
+        'method' => $request->getMethod(),
+    ]);
+    fwrite(STDERR, $logEntry . PHP_EOL);
+
     $payload = [
         'error' => $exception->getMessage(),
         'code'  => $code,
@@ -103,6 +116,31 @@ $app->group('', function (\Slim\Routing\RouteCollectorProxy $group) use ($dteEmi
     $group->post('/dte/anular', function (Request $request, Response $response) use ($dteEmitter) {
         $payload = (array) $request->getParsedBody();
         $result = $dteEmitter->anular($payload);
+        
+        $response->getBody()->write(json_encode($result));
+        return $response->withHeader('Content-Type', 'application/json');
+    });
+
+    // POST /dte/test-cert
+    $group->post('/dte/test-cert', function (Request $request, Response $response) {
+        $payload = (array) $request->getParsedBody();
+        $certBase64 = $payload['credenciales']['certificado_b64'] ?? '';
+        $password = $payload['credenciales']['password'] ?? '';
+        
+        $certContent = base64_decode($certBase64);
+        $certs = [];
+        $success = openssl_pkcs12_read($certContent, $certs, $password);
+        
+        $errors = [];
+        while ($msg = openssl_error_string()) {
+            $errors[] = $msg;
+        }
+
+        $result = [
+            'success' => $success,
+            'openssl_errors' => $errors,
+            'certs_keys' => $success ? array_keys($certs) : []
+        ];
         
         $response->getBody()->write(json_encode($result));
         return $response->withHeader('Content-Type', 'application/json');

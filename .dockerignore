@@ -4,3 +4,8 @@ storage/
 .cursor/
 .github/
 AGENTS.md
+Credenciales/
+*.py
+*test*.php
+*debug*.php
+*.xml

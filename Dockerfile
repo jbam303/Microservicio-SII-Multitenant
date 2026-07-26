@@ -12,6 +12,10 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+# Configurar OpenSSL 3.0 para aceptar certificados antiguos (.p12 de E-Certchile, SII, etc)
+RUN sed -i 's/\[provider_sect\]/\[provider_sect\]\nlegacy = legacy_sect/g' /etc/ssl/openssl.cnf && \
+    sed -i 's/\[default_sect\]/\[default_sect\]\nactivate = 1\n\n\[legacy_sect\]\nactivate = 1/g' /etc/ssl/openssl.cnf
+
 # Instalar extensiones de PHP requeridas
 RUN docker-php-ext-install \
     curl \
