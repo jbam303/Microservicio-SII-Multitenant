@@ -142,8 +142,19 @@ $app->group('', function (\Slim\Routing\RouteCollectorProxy $group) use ($dteEmi
     $group->post('/dte/emitir', function (Request $request, Response $response) use ($dteEmitter) {
         $payload = (array) $request->getParsedBody();
         $result = $dteEmitter->emitir($payload);
-        
-        $response->getBody()->write(json_encode($result));
+
+        // Red de seguridad: si algún campo trae bytes que no son UTF-8 válido,
+        // json_encode devuelve false y Slim revienta al escribir el cuerpo con
+        // un error irreconocible. Mejor fallar diciendo qué pasó.
+        $json = json_encode($result);
+        if ($json === false) {
+            throw new RuntimeException(
+                'No se pudo serializar la respuesta: ' . json_last_error_msg(),
+                500
+            );
+        }
+
+        $response->getBody()->write($json);
         return $response->withHeader('Content-Type', 'application/json');
     });
 

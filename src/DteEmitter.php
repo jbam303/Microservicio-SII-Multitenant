@@ -152,10 +152,22 @@ class DteEmitter
                  throw new RuntimeException("Error al firmar el DTE. Revisa tus credenciales y CAF.", 500);
             }
 
+            // El TED viene en ISO-8859-1 (el DTE del SII usa esa codificación).
+            // Devolverlo crudo rompe la respuesta: json_encode() exige UTF-8
+            // válido y ante un acento devuelve false, con lo que Slim termina
+            // llamando a fwrite($handle, false) y el request muere con un 500
+            // de cuerpo vacío. Es lo que impedía emitir cualquier boleta cuyo
+            // PRIMER ítem llevara tilde o ñ, porque el TED incluye IT1.
+            // El campo 'xml' no sufre esto porque va en base64.
+            $ted = $dte->getTED();
+            if (is_string($ted) && $ted !== '') {
+                $ted = mb_convert_encoding($ted, 'UTF-8', 'ISO-8859-1');
+            }
+
             return [
-                'folio' => $folioAsignado, 
+                'folio' => $folioAsignado,
                 'xml'   => base64_encode($dte->saveXML()),
-                'ted'   => $dte->getTED(),
+                'ted'   => $ted,
                 'pdf'   => null // PDF se delegaría a otro sistema o a otra función de libredte
             ];
 
