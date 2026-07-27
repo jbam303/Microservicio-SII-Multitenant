@@ -37,13 +37,13 @@ register_shutdown_function(function () {
     if (!in_array($err['type'], $fatales, true)) {
         return;
     }
-    fwrite(STDERR, json_encode([
+    error_log(json_encode([
         'severity' => 'CRITICAL',
         'message'  => 'FATAL PHP: ' . $err['message'],
         'tipo'     => $err['type'],
         'file'     => $err['file'] . ':' . $err['line'],
         'uri'      => $_SERVER['REQUEST_URI'] ?? '',
-    ]) . PHP_EOL);
+    ]));
 });
 
 // Cargar token estático desde variables de entorno
@@ -72,7 +72,11 @@ $customErrorHandler = function (
         $code = $exception->getCode();
     }
 
-    // Log structured JSON to stderr for Cloud Logging
+    // Log estructurado. OJO: bajo mod_php/Apache la constante STDERR NO existe
+    // (solo está definida en CLI). Usar fwrite(STDERR,...) acá hacía que el
+    // propio handler de errores lanzara un fatal, y Apache devolvía un 500 con
+    // cuerpo vacío. Por eso durante semanas ningún error del microservicio dejó
+    // rastro. error_log() sí funciona: va al log de Apache, que es stderr.
     $logEntry = json_encode([
         'severity' => 'ERROR',
         'message' => $exception->getMessage(),
@@ -83,7 +87,7 @@ $customErrorHandler = function (
         'uri' => (string) $request->getUri(),
         'method' => $request->getMethod(),
     ]);
-    fwrite(STDERR, $logEntry . PHP_EOL);
+    error_log($logEntry);
 
     $payload = [
         'error' => $exception->getMessage(),

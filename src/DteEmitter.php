@@ -125,12 +125,12 @@ class DteEmitter
             // (p. ej. un segfault), la última miga escrita dice hasta dónde
             // llegó. Es lo único que sobrevive a una muerte abrupta.
             $miga = function (string $paso) use ($tenantSlug, $folioAsignado) {
-                fwrite(STDERR, json_encode([
+                error_log(json_encode([
                     'severity' => 'INFO',
                     'message'  => "[DTE-PASO] $paso",
                     'tenant'   => $tenantSlug,
                     'folio'    => $folioAsignado,
-                ]) . PHP_EOL);
+                ]));
             };
 
             // 5. Instanciar y armar DTE
