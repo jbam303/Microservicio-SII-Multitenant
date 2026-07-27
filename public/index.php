@@ -15,6 +15,37 @@ require __DIR__ . '/../vendor/autoload.php';
 error_reporting(E_ALL & ~E_WARNING & ~E_NOTICE & ~E_DEPRECATED);
 ini_set('display_errors', '0');
 
+// Los errores igual se registran, a stderr, que es de donde Cloud Logging lee.
+ini_set('log_errors', '1');
+ini_set('error_log', 'php://stderr');
+
+/**
+ * Captura de errores FATALES.
+ *
+ * El handler de errores de Slim (más abajo) atrapa Throwable, pero un fatal
+ * de PHP no es un Throwable: escapa por completo y Apache devuelve un 500 con
+ * cuerpo vacío, sin dejar rastro. Es exactamente lo que ocurre al emitir una
+ * boleta cuyo primer ítem lleva tilde o ñ (2026-07-27): 500, 0 bytes, cero
+ * logs. Sin esto no hay forma de saber qué falló.
+ */
+register_shutdown_function(function () {
+    $err = error_get_last();
+    if (!$err) {
+        return;
+    }
+    $fatales = [E_ERROR, E_PARSE, E_CORE_ERROR, E_CORE_WARNING, E_COMPILE_ERROR, E_USER_ERROR];
+    if (!in_array($err['type'], $fatales, true)) {
+        return;
+    }
+    fwrite(STDERR, json_encode([
+        'severity' => 'CRITICAL',
+        'message'  => 'FATAL PHP: ' . $err['message'],
+        'tipo'     => $err['type'],
+        'file'     => $err['file'] . ':' . $err['line'],
+        'uri'      => $_SERVER['REQUEST_URI'] ?? '',
+    ]) . PHP_EOL);
+});
+
 // Cargar token estático desde variables de entorno
 $staticToken = getenv('API_TOKEN') ?: 'token_secreto_por_defecto';
 

@@ -121,14 +121,32 @@ class DteEmitter
                 ];
             }
 
+            // Migas de pan: si el proceso muere sin llegar al shutdown handler
+            // (p. ej. un segfault), la última miga escrita dice hasta dónde
+            // llegó. Es lo único que sobrevive a una muerte abrupta.
+            $miga = function (string $paso) use ($tenantSlug, $folioAsignado) {
+                fwrite(STDERR, json_encode([
+                    'severity' => 'INFO',
+                    'message'  => "[DTE-PASO] $paso",
+                    'tenant'   => $tenantSlug,
+                    'folio'    => $folioAsignado,
+                ]) . PHP_EOL);
+            };
+
             // 5. Instanciar y armar DTE
+            $miga('antes de new Dte');
             $dte = new Dte($documento);
-            
-            // 6. Timbrar DTE con CAF (Timbre Electrónico SII) y Folio
+
+            // 6. Timbrar DTE con CAF (Timbre Electrónico SII) y Folio.
+            // Acá se arma el TED, que incluye IT1 = nombre del primer ítem.
+            // Es el paso sospechoso cuando ese nombre tiene caracteres no-ASCII.
+            $miga('antes de timbrar');
             $dte->timbrar($folios);
-            
+
             // 7. Firmar documento
+            $miga('antes de firmar');
             $firmadoOk = $dte->firmar($firma);
+            $miga('firmado ok');
             
             if (!$firmadoOk) {
                  throw new RuntimeException("Error al firmar el DTE. Revisa tus credenciales y CAF.", 500);
