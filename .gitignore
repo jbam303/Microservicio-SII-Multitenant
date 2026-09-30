@@ -1,3 +1,15 @@
 AGENTS.md
 
 Credenciales/
+
+# Documentos tributarios firmados que generan los scripts. Nunca se versionan
+# ni se suben a un deploy: son boletas reales, con timbre y firma.
+set_*.xml
+*_firmada*.xml
+respuesta_*.xml
+
+# Ad-hoc scripts at the repo root (tests, certification, debugging). Some of
+# them embed real credentials, and this repository is public.
+/*.py
+/*.php
+/.atl/

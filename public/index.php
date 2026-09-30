@@ -11,6 +11,16 @@ use App\DteEmitter;
 
 require __DIR__ . '/../vendor/autoload.php';
 
+// Zona horaria de Chile, no la del contenedor.
+//
+// Sin esto PHP asume UTC, y como Chile está en UTC-4 toda boleta emitida entre
+// las 20:00 y medianoche salía con la FECHA DE MAÑANA en el XML: cuatro horas
+// por día, todos los días. El comprobante impreso mostraba la fecha correcta
+// —la pone el POS— así que la discrepancia no se veía en el papel.
+//
+// Afecta FchEmis del DTE, el TmstFirma y el período del consumo de folios.
+date_default_timezone_set('America/Santiago');
+
 // Ocultar warnings de librerías legacy (ej. LibreDTE) para no romper el output JSON
 error_reporting(E_ALL & ~E_WARNING & ~E_NOTICE & ~E_DEPRECATED);
 ini_set('display_errors', '0');
@@ -146,6 +156,118 @@ $app->group('', function (\Slim\Routing\RouteCollectorProxy $group) use ($dteEmi
         // Red de seguridad: si algún campo trae bytes que no son UTF-8 válido,
         // json_encode devuelve false y Slim revienta al escribir el cuerpo con
         // un error irreconocible. Mejor fallar diciendo qué pasó.
+        $json = json_encode($result);
+        if ($json === false) {
+            throw new RuntimeException(
+                'No se pudo serializar la respuesta: ' . json_last_error_msg(),
+                500
+            );
+        }
+
+        $response->getBody()->write($json);
+        return $response->withHeader('Content-Type', 'application/json');
+    });
+
+    // POST /dte/enviar-boletas
+    //
+    // Arma UN sobre EnvioBOLETA con las boletas que le pasen y lo transmite al
+    // SII. Devuelve el track ID.
+    //
+    // El tope es 50 por llamada, que es lo que el SII recomienda para volumen.
+    // Django hace los lotes y registra los track ID.
+    $group->post('/dte/enviar-boletas', function (Request $request, Response $response) {
+        $payload = (array) $request->getParsedBody();
+
+        $xmls = [];
+        foreach (($payload['xmls_b64'] ?? []) as $i => $b64) {
+            $xml = base64_decode((string) $b64, true);
+            if ($xml === false) {
+                throw new RuntimeException("El documento en la posición $i no está en base64 válido.", 400);
+            }
+            $xmls[] = $xml;
+        }
+        if (!$xmls) {
+            throw new RuntimeException('No hay boletas para enviar.', 400);
+        }
+        if (count($xmls) > \App\BoletaSender::MAX_POR_LOTE) {
+            throw new RuntimeException(
+                'Demasiadas boletas en un lote: ' . count($xmls) . '. El máximo recomendado por el SII es '
+                . \App\BoletaSender::MAX_POR_LOTE . '.',
+                400
+            );
+        }
+
+        $credenciales = (array) ($payload['credenciales'] ?? []);
+        $ambiente = (string) ($payload['ambiente'] ?? 'produccion');
+
+        // El sobre se arma acá y no en Django porque la firma vive en el
+        // certificado, y el certificado no sale de este servicio.
+        $sobre = \App\EnvioBoletaBuilder::armar(
+            $xmls,
+            (array) ($payload['resolucion'] ?? []),
+            $credenciales
+        );
+
+        $sender = new \App\BoletaSender($credenciales, $ambiente);
+        $envio = $sender->enviarSobre($sobre['xml'], (string) ($payload['rut_emisor'] ?? ''));
+
+        $json = json_encode([
+            'trackid' => $envio['trackid'],
+            'estado' => $envio['estado'],
+            'documentos' => $sobre['documentos'],
+            'rut_envia' => $sender->getRutEnvia(),
+            'respuesta_sii' => $envio['respuesta'],
+        ]);
+        if ($json === false) {
+            throw new RuntimeException('No se pudo serializar la respuesta: ' . json_last_error_msg(), 500);
+        }
+
+        $response->getBody()->write($json);
+        return $response->withHeader('Content-Type', 'application/json');
+    });
+
+    // POST /dte/consumo-folios
+    //
+    // Arma el resumen de ventas diarias (RVD, ex reporte de consumo de folios)
+    // de UN día. No lo envía: devuelve el XML firmado y decide Django.
+    //
+    // Recibe los XML ya firmados tal como se guardaron en `Venta.xml_dte_b64`,
+    // así que no se re-emite ni se re-firma nada.
+    $group->post('/dte/consumo-folios', function (Request $request, Response $response) {
+        $payload = (array) $request->getParsedBody();
+
+        $xmls = [];
+        foreach (($payload['xmls_b64'] ?? []) as $i => $b64) {
+            $xml = base64_decode((string) $b64, true);
+            if ($xml === false) {
+                throw new RuntimeException("El documento en la posición $i no está en base64 válido.", 400);
+            }
+            $xmls[] = $xml;
+        }
+
+        // Folios anulados por tipo: {"39": [11, 12]}. Son folios que se
+        // consumieron y cuya boleta nunca se entregó (la cajera se equivocó).
+        // Sin declararlos, el SII ve huecos sin explicación en la secuencia.
+        $anulados = [];
+        foreach ((array) ($payload['anulados'] ?? []) as $tipo => $folios) {
+            $anulados[(int) $tipo] = array_map('intval', (array) $folios);
+        }
+
+        $result = \App\ConsumoFoliosBuilder::armar(
+            $xmls,
+            (array) ($payload['resolucion'] ?? []),
+            (array) ($payload['credenciales'] ?? []),
+            (int) ($payload['secuencia'] ?? 1),
+            $anulados,
+            // Solo se usa si el lote no trae boletas emitidas y hay que sacar
+            // la fecha y el emisor de algún lado.
+            (array) ($payload['contexto'] ?? [])
+        );
+
+        // El XML va en base64 por la misma razón que en /dte/emitir: el
+        // documento del SII es ISO-8859-1 y json_encode() exige UTF-8 válido.
+        $result['xml'] = base64_encode($result['xml']);
+
         $json = json_encode($result);
         if ($json === false) {
             throw new RuntimeException(
