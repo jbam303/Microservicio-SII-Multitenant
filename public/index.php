@@ -57,7 +57,16 @@ register_shutdown_function(function () {
 });
 
 // Cargar token estático desde variables de entorno
-$staticToken = getenv('API_TOKEN') ?: 'token_secreto_por_defecto';
+// Sin fallback: este repo es público, así que un token por defecto sería
+// conocido por cualquiera. Si falta, el servicio no atiende nada.
+$staticToken = (string) getenv('API_TOKEN');
+if ($staticToken === '') {
+    error_log(json_encode(['severity' => 'CRITICAL', 'message' => 'API_TOKEN no está configurado']));
+    http_response_code(500);
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'Servicio mal configurado', 'code' => 500]);
+    exit;
+}
 
 // Instanciar App
 $app = AppFactory::create();

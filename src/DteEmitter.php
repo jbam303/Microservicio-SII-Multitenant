@@ -108,7 +108,12 @@ class DteEmitter
             // Acá se arma el TED, que incluye IT1 = nombre del primer ítem.
             // Es el paso sospechoso cuando ese nombre tiene caracteres no-ASCII.
             $miga('antes de timbrar');
-            $dte->timbrar($folios);
+            // timbrar() no lanza: devuelve false si el folio cae fuera del
+            // rango del CAF o falta un dato del timbre. Ignorarlo firmaba un
+            // documento sin TED válido.
+            if (!$dte->timbrar($folios)) {
+                throw new RuntimeException("Error al timbrar el DTE: revisa que el folio $folioAsignado esté dentro del rango del CAF.", 500);
+            }
 
             // 7. Firmar documento
             $miga('antes de firmar');
